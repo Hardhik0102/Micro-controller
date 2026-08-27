@@ -44,9 +44,4 @@ Java was the language suggested for this project, and I also feel comfortable wr
 ## Initial Development Plan
  Week 1: repo setup, studying micro controller, finalizing Java, making this initial design
 
-## Initial Development Plan (Week 1)
-Created the GitHub repository and set up the basic folder structure
-Studied the Nuvoton MS51FB9AE microcontroller — registers, memory, stack, GPIO, timer, and interrupts
-Finalized Java as the programming language for the project
-Made the initial system architecture design showing how the main parts (CPU, memory, peripherals, process manager, scheduler, UI) will connect
-Divided responsibilities among the team members
+
