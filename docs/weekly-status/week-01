@@ -18,7 +18,7 @@ Detailed CPU instruction design
 Memory and stack implementation details
 
 Issues encountered:
-Only I contributed actual work in Week 1 — the other two team members (Mohammed Ardhaan, Ayman Kolkar)
+Only Hardhik contributed actual work in Week 1 — the other two team members (Mohammed Ardhaan, Ayman Kolkar)
 have not made any commits or contributions yet
 
 Decisions made:
