@@ -1,1 +1,13 @@
+Decisions — Week 1
+Decision 1: Programming Language
 
+Problem: Which programming language should be used for the project?
+Options:
+Java (recommended by faculty)
+C 
+
+Discussion: Java was already the suggested language for this project. It also makes it easier to represent things like Registers, Memory, PCB, and Scheduler as separate classes since Java is object-oriented, and it has built-in data structures (Queue, Stack, LinkedList) useful for process management.
+
+Decision: Java is finalized as the programming language for this project.
+Responsible: Hardhik C Shettigar
+Status: Closed

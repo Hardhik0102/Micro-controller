@@ -1,0 +1,38 @@
+Week 1 Status Update
+
+Planned work:
+Set up the GitHub repository and folder structure
+Study the assigned microcontroller
+Finalize the programming language
+Make an initial architecture design
+
+Completed work:
+Created a public GitHub repository with the required folder structure (docs, src, tests, programs)
+Studied the Nuvoton MS51FB9AE microcontroller — registers, PC, flags, memory, stack, GPIO, timer, and interrupts
+Finalized Java as the programming language for the project
+Made the initial system architecture design (CPU, memory, peripherals, process manager, scheduler, UI)
+Divided responsibilities among the team members
+
+Pending work:
+Detailed CPU instruction design
+Memory and stack implementation details
+
+Issues encountered:
+Only Hardhik contributed actual work in Week 1 — the other two team members (Mohammed Ardhaan, Ayman Kolkar)
+have not made any commits or contributions yet
+
+Decisions made:
+Java selected as the programming language
+Initial responsibility split documented in the README
+(to be followed up since work hasn't started from the other members)
+
+Individual contributions:
+Hardhik C Shettigar — repository setup, GitHub structure, microcontroller study, 
+                      language selection, architecture design, README
+Mohammed Ardhaan — no contribution yet
+Ayman Kolkar — no contribution yet
+
+
+Work accepted:
+
+Repository structure, README, architecture diagram
