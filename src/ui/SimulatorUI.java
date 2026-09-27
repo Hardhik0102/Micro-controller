@@ -2,6 +2,7 @@ package com.team.ms51sim.ui;
 
 import com.team.ms51sim.Assembler;
 import com.team.ms51sim.CPU;
+import com.team.ms51sim.FifoQueue;
 import com.team.ms51sim.Simulator;
 import com.team.ms51sim.TraceFormatter;
 
@@ -20,7 +21,8 @@ import java.util.List;
  *
  * <p>Displays: the program listing with the current instruction highlighted,
  * the Program Counter, CPU registers (ACC, B, R0-R7), the PSW flags, the
- * execution status and a scrolling execution trace.</p>
+ * execution status and a scrolling execution trace. Week 3 adds live views of
+ * internal RAM, the hardware stack and the FIFO queue.</p>
  */
 public class SimulatorUI extends JFrame {
 
@@ -32,6 +34,9 @@ public class SimulatorUI extends JFrame {
     private final DefaultListModel<String> listingModel = new DefaultListModel<>();
     private final JList<String> listingList = new JList<>(listingModel);
     private final JTextArea traceArea = new JTextArea();
+    private final JTextArea memoryArea = new JTextArea();
+    private final JTextArea stackArea = new JTextArea();
+    private final JTextArea queueArea = new JTextArea();
 
     private final JLabel accLabel = valueLabel();
     private final JLabel bLabel = valueLabel();
@@ -54,13 +59,22 @@ public class SimulatorUI extends JFrame {
 
     private Timer runTimer;
 
+    private static final Color BANNER_BG = new Color(0x1B3A63);
+    private static final Color BANNER_FG = Color.WHITE;
+    private static final Color MEMORY_ACCENT = new Color(0x1B5FAE);  // blue
+    private static final Color STACK_ACCENT  = new Color(0x1E7A3C);  // green
+    private static final Color QUEUE_ACCENT  = new Color(0xB0530C);  // orange
+
     public SimulatorUI() {
-        super("MS51FB9AE Simulator - Week 2 Prototype");
+        super("MS51FB9AE Simulator - Week 3 (CPU + Memory + Stack + FIFO Queue)");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLayout(new BorderLayout(8, 8));
-        ((JComponent) getContentPane()).setBorder(new EmptyBorder(8, 8, 8, 8));
+        ((JComponent) getContentPane()).setBorder(new EmptyBorder(0, 8, 8, 8));
 
-        add(buildToolbar(), BorderLayout.NORTH);
+        JPanel north = new JPanel(new BorderLayout());
+        north.add(buildBanner(), BorderLayout.NORTH);
+        north.add(buildToolbar(), BorderLayout.SOUTH);
+        add(north, BorderLayout.NORTH);
         add(buildCenter(), BorderLayout.CENTER);
         add(buildStatusBar(), BorderLayout.SOUTH);
 
@@ -69,7 +83,7 @@ public class SimulatorUI extends JFrame {
         setButtonsForUnloaded();
         refreshView(null);
 
-        setSize(1024, 720);
+        setSize(1200, 760);
         setLocationRelativeTo(null);
     }
 
@@ -77,16 +91,64 @@ public class SimulatorUI extends JFrame {
     /*  Layout                                                           */
     /* ------------------------------------------------------------------ */
 
+    /** Dark banner across the top so Week 3 is visually unmistakable at a glance. */
+    private JComponent buildBanner() {
+        JPanel banner = new JPanel(new BorderLayout());
+        banner.setBackground(BANNER_BG);
+        banner.setBorder(new EmptyBorder(8, 12, 8, 12));
+
+        JLabel title = new JLabel("MS51FB9AE SIMULATOR  —  WEEK 3");
+        title.setForeground(BANNER_FG);
+        title.setFont(title.getFont().deriveFont(Font.BOLD, 16f));
+
+        JLabel subtitle = new JLabel("New this week:  Memory read/write   ·   Stack (SP, PUSH/POP)   ·   FIFO Queue (ENQ/DEQ)");
+        subtitle.setForeground(new Color(0xCFE0F5));
+        subtitle.setFont(subtitle.getFont().deriveFont(Font.PLAIN, 12f));
+
+        JPanel text = new JPanel(new GridLayout(2, 1));
+        text.setOpaque(false);
+        text.add(title);
+        text.add(subtitle);
+        banner.add(text, BorderLayout.WEST);
+
+        JLabel chip = pillLabel("CPU + MEMORY + STACK + QUEUE");
+        banner.add(chip, BorderLayout.EAST);
+        return banner;
+    }
+
+    private static JLabel pillLabel(String text) {
+        JLabel l = new JLabel(text);
+        l.setOpaque(true);
+        l.setBackground(new Color(0x2E5B96));
+        l.setForeground(Color.WHITE);
+        l.setFont(l.getFont().deriveFont(Font.BOLD, 11f));
+        l.setBorder(new EmptyBorder(5, 10, 5, 10));
+        return l;
+    }
+
     private JComponent buildToolbar() {
         JToolBar bar = new JToolBar();
         bar.setFloatable(false);
-        for (JButton b : new JButton[]{loadBtn, resetBtn, stepBtn, runBtn, stopBtn}) {
+        bar.setBackground(new Color(0xE9EEF5));
+        bar.setBorder(new EmptyBorder(4, 4, 4, 4));
+
+        Color[] accents = {
+                new Color(0x2E7D32), new Color(0x8D6E00), new Color(0x1565C0),
+                new Color(0x1565C0), new Color(0xB71C1C)
+        };
+        JButton[] buttons = {loadBtn, resetBtn, stepBtn, runBtn, stopBtn};
+        for (int i = 0; i < buttons.length; i++) {
+            JButton b = buttons[i];
             b.setFocusable(false);
+            b.setFont(b.getFont().deriveFont(Font.BOLD));
+            b.setForeground(accents[i]);
             bar.add(b);
-            bar.add(Box.createHorizontalStrut(4));
+            bar.add(Box.createHorizontalStrut(6));
         }
         bar.add(Box.createHorizontalGlue());
-        bar.add(new JLabel("Nuvoton MS51FB9AE (8051 core)  "));
+        JLabel chip = new JLabel("Nuvoton MS51FB9AE (8051 core)");
+        chip.setFont(chip.getFont().deriveFont(Font.ITALIC));
+        bar.add(chip);
         return bar;
     }
 
@@ -109,7 +171,7 @@ public class SimulatorUI extends JFrame {
         leftSplit.setResizeWeight(0.45);
         left.add(leftSplit, BorderLayout.CENTER);
 
-        // right: registers + trace
+        // right: registers + (memory/stack/queue tabs) + trace
         JPanel right = new JPanel(new BorderLayout(4, 4));
         right.add(buildRegisterPanel(), BorderLayout.NORTH);
 
@@ -117,11 +179,46 @@ public class SimulatorUI extends JFrame {
         traceArea.setEditable(false);
         JScrollPane traceScroll = new JScrollPane(traceArea);
         traceScroll.setBorder(new TitledBorder("Execution trace  (FETCH -> DECODE -> EXECUTE)"));
-        right.add(traceScroll, BorderLayout.CENTER);
+
+        JSplitPane rightSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
+                buildMemStackQueuePanel(), traceScroll);
+        rightSplit.setResizeWeight(0.5);
+        right.add(rightSplit, BorderLayout.CENTER);
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right);
-        split.setResizeWeight(0.42);
+        split.setResizeWeight(0.40);
         return split;
+    }
+
+    /**
+     * Week 3's headline addition: Memory, Stack and the FIFO Queue shown
+     * <b>side by side, always visible</b> (no tabs to click through) - each
+     * with its own colour-coded border so the three new features stand out
+     * from the Week 2 layout.
+     */
+    private JComponent buildMemStackQueuePanel() {
+        for (JTextArea a : new JTextArea[]{memoryArea, stackArea, queueArea}) {
+            a.setFont(mono(12));
+            a.setEditable(false);
+        }
+        JComponent memPane   = coloredPane(memoryArea, "Memory (RAM)",   MEMORY_ACCENT);
+        JComponent stackPane = coloredPane(stackArea,  "Stack",          STACK_ACCENT);
+        JComponent queuePane = coloredPane(queueArea,  "FIFO Queue",     QUEUE_ACCENT);
+
+        JSplitPane inner = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, stackPane, queuePane);
+        inner.setResizeWeight(0.5);
+        JSplitPane outer = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, memPane, inner);
+        outer.setResizeWeight(0.4);
+        return outer;
+    }
+
+    private static JComponent coloredPane(JTextArea area, String title, Color accent) {
+        JScrollPane sp = new JScrollPane(area);
+        TitledBorder tb = new TitledBorder(BorderFactory.createLineBorder(accent, 2), title);
+        tb.setTitleColor(accent);
+        tb.setTitleFont(sp.getFont().deriveFont(Font.BOLD, 12f));
+        sp.setBorder(tb);
+        return sp;
     }
 
     private JComponent buildRegisterPanel() {
@@ -286,6 +383,13 @@ public class SimulatorUI extends JFrame {
 
         currentInstrLabel.setText(last != null && last.fetched ? last.mnemonic : "-");
 
+        memoryArea.setText(renderMemory(cpu));
+        memoryArea.setCaretPosition(0);
+        stackArea.setText(renderStack(cpu));
+        stackArea.setCaretPosition(0);
+        queueArea.setText(renderQueue(cpu));
+        queueArea.setCaretPosition(0);
+
         // highlight the instruction the PC now points at
         int idx = indexOfAddress(cpu.pc);
         if (idx >= 0) {
@@ -294,6 +398,65 @@ public class SimulatorUI extends JFrame {
         } else {
             listingList.clearSelection();
         }
+    }
+
+    private static String renderMemory(CPU cpu) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Internal data RAM  00H - 7FH\n");
+        sb.append("      +0 +1 +2 +3 +4 +5 +6 +7  +8 +9 +A +B +C +D +E +F\n");
+        for (int row = 0; row < 8; row++) {
+            sb.append(String.format("%02XH:  ", row * 16));
+            for (int col = 0; col < 16; col++) {
+                sb.append(String.format("%02X ", cpu.ram[row * 16 + col] & 0xFF));
+                if (col == 7) sb.append(' ');
+            }
+            sb.append('\n');
+        }
+        sb.append("\nR0-R7 (bank ").append(cpu.currentBank()).append(") live at ")
+          .append(String.format("%02XH-%02XH", cpu.currentBank() * 8, cpu.currentBank() * 8 + 7))
+          .append('\n');
+        sb.append("Stack grows upward from 08H (SP resets to 07H)\n");
+        sb.append("Suggested scratch area for demo programs: 30H and up\n");
+        return sb.toString();
+    }
+
+    private static String renderStack(CPU cpu) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("SP = %02XH%n%n", cpu.sp & 0xFF));
+        if ((cpu.sp & 0xFF) < 0x08) {
+            sb.append("(stack empty - nothing pushed yet)\n");
+        } else {
+            sb.append("addr   value\n");
+            for (int a = cpu.sp & 0xFF; a >= 0x08; a--) {
+                sb.append(String.format("%02XH:   %02XH%s%n",
+                        a, cpu.ram[a] & 0xFF, a == (cpu.sp & 0xFF) ? "    <- top (SP)" : ""));
+            }
+        }
+        sb.append("\nPUSH: SP = SP + 1, then RAM[SP] = value\n");
+        sb.append("POP : value = RAM[SP], then SP = SP - 1\n");
+        return sb.toString();
+    }
+
+    private static String renderQueue(CPU cpu) {
+        FifoQueue q = cpu.queue;
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("FIFO queue  (circular, capacity %d)%n%n", q.capacity()));
+        int[] s = q.snapshot();
+        sb.append("front -> ");
+        if (s.length == 0) {
+            sb.append("(empty)");
+        } else {
+            for (int v : s) sb.append(String.format("[%02X] ", v & 0xFF));
+        }
+        sb.append("<- back\n\n");
+        sb.append(String.format("size    : %d / %d%n", q.size(), q.capacity()));
+        sb.append(String.format("EMPTY   : %s%n", q.isEmpty() ? "yes" : "no"));
+        sb.append(String.format("FULL    : %s%n", q.isFull() ? "yes" : "no"));
+        sb.append(String.format("status  : %02XH   (bit0 = empty, bit1 = full, bits 4-7 = count)%n",
+                q.statusByte()));
+        sb.append("\nENQ A: add ACC at the back   (CY = 1 if full)\n");
+        sb.append("DEQ A: take from the front into ACC   (CY = 1 if empty)\n");
+        return sb.toString();
     }
 
     private int indexOfAddress(int address) {
@@ -389,19 +552,24 @@ public class SimulatorUI extends JFrame {
     }
 
     private static final String DEFAULT_PROGRAM =
-            "; demo1 - Week 2 demonstration program (MS51FB9AE / 8051)\n" +
-            "; add 3 five times via a DJNZ loop, then SUBB, ANL, INC, HLT.\n\n" +
-            "        MOV  A,#3\n" +
-            "        MOV  R2,A\n" +
-            "        MOV  A,#5\n" +
-            "        MOV  R1,A\n" +
-            "        MOV  A,#0\n" +
-            "loop:   ADD  A,R2\n" +
-            "        DJNZ R1,loop\n" +
-            "        SUBB A,#1\n" +
-            "        ANL  A,#0CH\n" +
-            "        INC  A\n" +
-            "        HLT\n";
+            "; week3-demo.asm - exercises Memory, Stack and the FIFO Queue\n" +
+            "; (MS51FB9AE / 8051 core)\n\n" +
+            "        MOV  A,#7EH      ; ACC = 7EH\n" +
+            "        MOV  30H,A       ; memory write: RAM[30H] = 7EH\n" +
+            "        PUSH 30H         ; stack: push RAM[30H]\n" +
+            "        MOV  A,#00H      ; ACC = 00H\n" +
+            "        POP  A           ; stack: ACC = 7EH back off the stack\n\n" +
+            "        MOV  A,#11H\n" +
+            "        ENQ  A           ; queue: [11]\n" +
+            "        MOV  A,#22H\n" +
+            "        ENQ  A           ; queue: [11 22]\n" +
+            "        MOV  A,#33H\n" +
+            "        ENQ  A           ; queue: [11 22 33]\n\n" +
+            "        DEQ  A           ; ACC = 11H  (FIFO - first in, first out)\n" +
+            "        MOV  31H,A       ; RAM[31H] = 11H\n" +
+            "        DEQ  A           ; ACC = 22H\n" +
+            "        MOV  32H,A       ; RAM[32H] = 22H\n" +
+            "        HLT              ; queue still holds [33]\n";
 
     public static void launch() {
         try {
