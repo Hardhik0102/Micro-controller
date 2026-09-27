@@ -31,8 +31,11 @@ public class CPU {
     /** Internal data RAM: 0x00-0x7F direct/indirect, 0x80-0xFF indirect only on real HW. */
     public final int[] ram = new int[256];
 
-    /** Program (code) memory. 8 KB is plenty for Week 2 demo programs. */
+    /** Program (code) memory. 8 KB is plenty for the demo programs. */
     public final int[] code = new int[0x2000];
+
+    /** FIFO queue peripheral (Week 3) - driven by the ENQ / DEQ instructions. */
+    public final FifoQueue queue = new FifoQueue(8);
 
     public int acc;   // accumulator (ACC / A)
     public int b;     // B register
@@ -56,6 +59,7 @@ public class CPU {
         pc = 0;
         sp = 0x07;      // 8051 reset value of SP
         halted = false;
+        queue.clear();
     }
 
     /* ------------------------------------------------------------------ */
@@ -105,6 +109,35 @@ public class CPU {
             case SFR_PSW: psw = value; break;
             default:      ram[addr] = value; break;
         }
+    }
+
+    /** Human-readable name for the well-known direct addresses, else "xxH". */
+    public static String sfrName(int addr) {
+        switch (addr & 0xFF) {
+            case SFR_ACC: return "ACC";
+            case SFR_B:   return "B";
+            case SFR_SP:  return "SP";
+            case SFR_PSW: return "PSW";
+            default:      return String.format("%02XH", addr & 0xFF);
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Hardware stack (grows UP in internal RAM from SP)                 */
+    /* ------------------------------------------------------------------ */
+
+    /** PUSH: pre-increment SP, then store. Returns the new SP. */
+    public int push(int value) {
+        sp = (sp + 1) & 0xFF;
+        ram[sp] = value & 0xFF;
+        return sp;
+    }
+
+    /** POP: read from SP, then post-decrement SP. Returns the popped byte. */
+    public int pop() {
+        int v = ram[sp] & 0xFF;
+        sp = (sp - 1) & 0xFF;
+        return v;
     }
 
     /* ------------------------------------------------------------------ */
