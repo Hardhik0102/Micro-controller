@@ -10,7 +10,7 @@ package com.team.ms51sim;
  */
 public class Instruction {
 
-    /** Functional categories required by the Week 2 brief. */
+    /** Functional categories (Week 2 six, plus the Week 3 memory/stack/queue groups). */
     public enum Category {
         DATA_TRANSFER("Data Transfer"),
         ARITHMETIC("Arithmetic"),
@@ -18,6 +18,9 @@ public class Instruction {
         INC_DEC("Increment / Decrement"),
         CONTROL_FLOW("Control Flow"),
         PROGRAM_TERMINATION("Program Termination"),
+        MEMORY("Memory"),
+        STACK("Stack"),
+        QUEUE("Queue"),
         MISC("Miscellaneous");
 
         public final String label;

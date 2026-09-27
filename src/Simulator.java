@@ -108,7 +108,7 @@ public class Simulator {
         if (current == null) return null;
         String m = current.mnemonic;
         m = m.replace("#data", String.format("#%02XH", fetchedOperand));
-        m = m.replace("direct", String.format("%02XH", fetchedOperand));
+        m = m.replace("direct", CPU.sfrName(fetchedOperand));
         if (m.contains("rel")) {
             int target = (cpu.pc + (byte) fetchedOperand) & 0xFFFF;
             m = m.replace("rel", String.format("%04XH", target));

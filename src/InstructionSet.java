@@ -6,12 +6,9 @@ import java.util.Map;
 import com.team.ms51sim.Instruction.Category;
 
 /**
- * The instruction set implemented by the Week 2 prototype.
+ * The instruction set implemented by the simulator.
  *
- * <p>The brief requires <b>at least 8</b> processor-specific instructions
- * covering six functional areas. This prototype implements exactly that
- * minimum set for the Nuvoton MS51FB9AE (8051 core):</p>
- *
+ * <p><b>Week 2</b> - the 8 required instructions over the six functional areas:</p>
  * <pre>
  *   Data Transfer         MOV A,#data     MOV Rn,A
  *   Arithmetic            ADD A,Rn        SUBB A,#data
@@ -21,10 +18,18 @@ import com.team.ms51sim.Instruction.Category;
  *   Program Termination   HLT
  * </pre>
  *
- * <p>Opcodes are the real 8051 opcodes, except {@code HLT}: opcode {@code 0xA5}
- * is officially <b>undefined/reserved</b> on the 8051 core, so the project
- * reuses it as a synthetic program-termination instruction. This is documented
- * in {@code docs/week-02/instruction-set.md}.</p>
+ * <p><b>Week 3</b> - memory, stack and FIFO-queue instructions:</p>
+ * <pre>
+ *   Memory   MOV A,direct   MOV direct,A          (read / write internal RAM)
+ *   Stack    PUSH direct     POP direct           (real 8051 opcodes C0H / D0H)
+ *   Queue    ENQ A           DEQ A                (project-specific, opcodes A6H / A7H)
+ * </pre>
+ *
+ * <p>Opcodes are the real 8051 opcodes, except three synthetic ones the project
+ * defines because the 8051 core has no equivalent: {@code HLT} = {@code A5H}
+ * (the one truly unused 8051 opcode), {@code ENQ} = {@code A6H} and
+ * {@code DEQ} = {@code A7H}. All are documented in
+ * {@code docs/week-03/instruction-set-week3.md}.</p>
  *
  * <p>The lookup table is a {@link HashMap} keyed by opcode &ndash; this is the
  * data structure the DECODE stage uses.</p>
@@ -32,6 +37,8 @@ import com.team.ms51sim.Instruction.Category;
 public class InstructionSet {
 
     public static final int HLT_OPCODE = 0xA5;
+    public static final int ENQ_OPCODE = 0xA6;
+    public static final int DEQ_OPCODE = 0xA7;
 
     private final Map<Integer, Instruction> table = new HashMap<>();
 
@@ -138,6 +145,99 @@ public class InstructionSet {
                 (cpu, op, ctx) -> {
                     cpu.halted = true;
                     ctx.note("program terminated (HLT)");
+                }));
+
+        buildWeek3();
+    }
+
+    /** Week 3: memory read/write, stack PUSH/POP, and FIFO queue ENQ/DEQ. */
+    private void buildWeek3() {
+
+        /* ============ Memory (read / write internal RAM) ============ */
+
+        // MOV A,direct           opcode E5H, 2 bytes  - read RAM[addr] into ACC
+        put(new Instruction(0xE5, "MOV  A,direct", Category.MEMORY, 2,
+                (cpu, op, ctx) -> {
+                    int addr = op & 0xFF;
+                    int before = cpu.acc;
+                    cpu.setAcc(cpu.readDirect(addr));
+                    ctx.recordByte("ACC", before, cpu.acc);
+                    ctx.note("read " + CPU.sfrName(addr));
+                }));
+
+        // MOV direct,A           opcode F5H, 2 bytes  - write ACC to RAM[addr]
+        put(new Instruction(0xF5, "MOV  direct,A", Category.MEMORY, 2,
+                (cpu, op, ctx) -> {
+                    int addr = op & 0xFF;
+                    int before = cpu.readDirect(addr);
+                    cpu.writeDirect(addr, cpu.acc);
+                    ctx.recordByte("[" + CPU.sfrName(addr) + "]", before, cpu.acc);
+                    ctx.note("write " + CPU.sfrName(addr));
+                }));
+
+        /* ============ Stack (SP + PUSH / POP) ============ */
+
+        // PUSH direct            opcode C0H, 2 bytes
+        put(new Instruction(0xC0, "PUSH direct", Category.STACK, 2,
+                (cpu, op, ctx) -> {
+                    int addr = op & 0xFF;
+                    int val = cpu.readDirect(addr);
+                    int spOld = cpu.sp;
+                    int slot = cpu.push(val);
+                    ctx.recordByte("SP", spOld, cpu.sp);
+                    ctx.recordByte("RAM[" + String.format("%02XH", slot) + "]", 0, val);
+                    ctx.note("PUSH " + CPU.sfrName(addr) + " (" + ExecContext.hex2(val) + ")");
+                }));
+
+        // POP direct             opcode D0H, 2 bytes
+        put(new Instruction(0xD0, "POP  direct", Category.STACK, 2,
+                (cpu, op, ctx) -> {
+                    int addr = op & 0xFF;
+                    int spOld = cpu.sp;
+                    int before = cpu.readDirect(addr);
+                    int val = cpu.pop();
+                    cpu.writeDirect(addr, val);
+                    ctx.recordByte(CPU.sfrName(addr), before, val);
+                    ctx.recordByte("SP", spOld, cpu.sp);
+                    ctx.note("POP -> " + CPU.sfrName(addr) + " (" + ExecContext.hex2(val) + ")");
+                }));
+
+        /* ============ FIFO Queue (ENQ / DEQ) ============ */
+
+        // ENQ A                  opcode A6H, 1 byte  (project-specific)
+        put(new Instruction(ENQ_OPCODE, "ENQ  A", Category.QUEUE, 1,
+                (cpu, op, ctx) -> {
+                    boolean cyOld = cpu.carry();
+                    boolean ok = cpu.queue.enqueue(cpu.acc);
+                    cpu.setFlag(CPU.PSW_CY, !ok);
+                    ctx.recordFlag("CY", cyOld, !ok);
+                    if (ok) {
+                        ctx.note("ENQUEUE " + ExecContext.hex2(cpu.acc)
+                                + "   (queue size " + cpu.queue.size() + "/" + cpu.queue.capacity() + ")");
+                    } else {
+                        ctx.note("ENQUEUE " + ExecContext.hex2(cpu.acc)
+                                + " rejected - queue FULL  (CY = 1)");
+                    }
+                }));
+
+        // DEQ A                  opcode A7H, 1 byte  (project-specific)
+        put(new Instruction(DEQ_OPCODE, "DEQ  A", Category.QUEUE, 1,
+                (cpu, op, ctx) -> {
+                    boolean cyOld = cpu.carry();
+                    int accBefore = cpu.acc;
+                    int v = cpu.queue.dequeue();
+                    if (v < 0) {
+                        cpu.setFlag(CPU.PSW_CY, true);
+                        ctx.recordFlag("CY", cyOld, true);
+                        ctx.note("DEQUEUE rejected - queue EMPTY  (CY = 1)");
+                    } else {
+                        cpu.setAcc(v);
+                        cpu.setFlag(CPU.PSW_CY, false);
+                        ctx.recordByte("ACC", accBefore, cpu.acc);
+                        ctx.recordFlag("CY", cyOld, false);
+                        ctx.note("DEQUEUE " + ExecContext.hex2(v)
+                                + "   (queue size " + cpu.queue.size() + "/" + cpu.queue.capacity() + ")");
+                    }
                 }));
     }
 }
