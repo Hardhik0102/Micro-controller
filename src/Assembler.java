@@ -7,10 +7,10 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * A small two-pass assembler for the eight instructions implemented by the
- * Week 2 prototype. It turns readable source (see {@code programs/demo1.asm})
- * into machine code that {@link Simulator#load(int[])} can run, and produces a
- * listing the UI shows in the program pane.
+ * A small two-pass assembler for the instructions the simulator implements.
+ * It turns readable source (see {@code programs/*.asm}) into machine code that
+ * {@link Simulator#load(int[])} can run, and produces a listing the UI shows in
+ * the program pane.
  *
  * <p>Supported syntax:</p>
  * <pre>
@@ -19,13 +19,22 @@ import java.util.Map;
  *   MOV  A,#25             decimal immediate
  *   MOV  A,#0FH            hex immediate (0x.. or ..H)
  *   MOV  R2,A
+ *   MOV  A,30H             read internal RAM     (Week 3)
+ *   MOV  30H,A             write internal RAM    (Week 3)
  *   ADD  A,R2
  *   SUBB A,#1
  *   ANL  A,#0CH
  *   INC  A
  *   DJNZ R1,loop           jump target is a label
+ *   PUSH A   / PUSH 30H    stack push            (Week 3)
+ *   POP  A   / POP  30H    stack pop             (Week 3)
+ *   ENQ  A                 enqueue ACC into FIFO (Week 3)
+ *   DEQ  A                 dequeue FIFO into ACC (Week 3)
  *   HLT
  * </pre>
+ *
+ * <p>A "direct" operand is a number ({@code 30H}, {@code 0x30}, {@code 48}) or
+ * one of the names {@code A}/{@code ACC}, {@code B}, {@code PSW}, {@code SP}.</p>
  */
 public class Assembler {
 
@@ -128,17 +137,23 @@ public class Assembler {
     }
 
     private int encodedLength(String mn, String ops) {
+        String[] p = ops.isEmpty() ? new String[0] : ops.split(",");
         switch (mn) {
             case "INC": case "HLT":
                 return 1;
+            case "ENQ": case "DEQ":
+                return 1;                            // ENQ A ; DEQ A
             case "MOV":
-                return ops.contains("#") ? 2 : 1;   // MOV A,#data = 2 ; MOV Rn,A = 1
+                // MOV Rn,A is 1 byte; every other MOV form (A,#data / A,direct / direct,A) is 2
+                return (p.length == 2 && p[1].equals("A") && p[0].matches("R[0-7]")) ? 1 : 2;
             case "ADD":
                 return 1;                            // ADD A,Rn
             case "SUBB": case "ANL":
                 return 2;                            // SUBB A,#data ; ANL A,#data
             case "DJNZ":
                 return 2;                            // DJNZ Rn,rel
+            case "PUSH": case "POP":
+                return 2;                            // PUSH direct ; POP direct
             default:
                 throw new AssemblyException("Unknown / unsupported mnemonic: " + mn);
         }
@@ -157,11 +172,29 @@ public class Assembler {
             case "MOV": {
                 require(p.length == 2, "MOV expects two operands");
                 String d = p[0], s = p[1];
-                if (d.equals("A") && s.startsWith("#")) return new int[]{0x74, imm(s)};
-                if (d.matches("R[0-7]") && s.equals("A")) return new int[]{0xF8 + reg(d)};
+                if (d.equals("A") && s.startsWith("#"))    return new int[]{0x74, imm(s)};
+                if (d.matches("R[0-7]") && s.equals("A"))  return new int[]{0xF8 + reg(d)};
+                if (d.equals("A"))                         return new int[]{0xE5, direct(s)};   // MOV A,direct
+                if (s.equals("A"))                         return new int[]{0xF5, direct(d)};   // MOV direct,A
                 throw new AssemblyException("Unsupported MOV form: " + ops
-                        + "  (supported: 'MOV A,#data' and 'MOV Rn,A')");
+                        + "  (supported: MOV A,#data | MOV Rn,A | MOV A,direct | MOV direct,A)");
             }
+
+            case "PUSH":
+                require(p.length == 1, "PUSH expects one operand (PUSH A or PUSH <addr>)");
+                return new int[]{0xC0, direct(p[0])};
+
+            case "POP":
+                require(p.length == 1, "POP expects one operand (POP A or POP <addr>)");
+                return new int[]{0xD0, direct(p[0])};
+
+            case "ENQ":
+                require(ops.equals("A"), "ENQ expects A  (only 'ENQ A' is supported)");
+                return new int[]{InstructionSet.ENQ_OPCODE};
+
+            case "DEQ":
+                require(ops.equals("A"), "DEQ expects A  (only 'DEQ A' is supported)");
+                return new int[]{InstructionSet.DEQ_OPCODE};
 
             case "ADD":
                 require(p.length == 2 && p[0].equals("A") && p[1].matches("R[0-7]"),
@@ -200,6 +233,17 @@ public class Assembler {
 
     private static int imm(String s) {
         return parseNumber(s.substring(1)) & 0xFF;   // drop leading '#'
+    }
+
+    /** A direct address: a number, or one of the SFR names A/ACC, B, PSW, SP. */
+    private static int direct(String s) {
+        switch (s) {
+            case "A": case "ACC": return 0xE0;
+            case "B":             return 0xF0;
+            case "PSW":           return 0xD0;
+            case "SP":            return 0x81;
+            default:              return parseNumber(s) & 0xFF;
+        }
     }
 
     private static int resolve(String s, Map<String, Integer> labels) {
