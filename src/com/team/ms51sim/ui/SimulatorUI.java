@@ -27,7 +27,8 @@ import java.util.List;
 public class SimulatorUI extends JFrame {
 
     private final Assembler assembler = new Assembler();
-    private final Simulator sim = new Simulator();
+    private final SimulatorBackend sim;     // Week 4: local (single process) or remote (Core process)
+    private final String mode;
     private Assembler.Program program;
 
     private final JTextArea sourceArea = new JTextArea();
@@ -66,7 +67,13 @@ public class SimulatorUI extends JFrame {
     private static final Color QUEUE_ACCENT  = new Color(0xB0530C);  // orange
 
     public SimulatorUI() {
-        super("MS51FB9AE Simulator - Week 3 (CPU + Memory + Stack + FIFO Queue)");
+        this(new LocalBackend(), "standalone, single process");
+    }
+
+    public SimulatorUI(SimulatorBackend backend, String mode) {
+        super("MS51FB9AE Simulator - Week 4 (" + mode + ")");
+        this.sim = backend;
+        this.mode = mode;
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLayout(new BorderLayout(8, 8));
         ((JComponent) getContentPane()).setBorder(new EmptyBorder(0, 8, 8, 8));
@@ -97,11 +104,11 @@ public class SimulatorUI extends JFrame {
         banner.setBackground(BANNER_BG);
         banner.setBorder(new EmptyBorder(8, 12, 8, 12));
 
-        JLabel title = new JLabel("MS51FB9AE SIMULATOR  —  WEEK 3");
+        JLabel title = new JLabel("MS51FB9AE SIMULATOR  —  WEEK 4");
         title.setForeground(BANNER_FG);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 16f));
 
-        JLabel subtitle = new JLabel("New this week:  Memory read/write   ·   Stack (SP, PUSH/POP)   ·   FIFO Queue (ENQ/DEQ)");
+        JLabel subtitle = new JLabel("New this week:  separate UI / Core / Logging processes   ·   POSIX Unix-domain-socket IPC   ·   mode: " + mode);
         subtitle.setForeground(new Color(0xCFE0F5));
         subtitle.setFont(subtitle.getFont().deriveFont(Font.PLAIN, 12f));
 
@@ -111,7 +118,7 @@ public class SimulatorUI extends JFrame {
         text.add(subtitle);
         banner.add(text, BorderLayout.WEST);
 
-        JLabel chip = pillLabel("CPU + MEMORY + STACK + QUEUE");
+        JLabel chip = pillLabel("UI  →  CORE  →  LOGGER");
         banner.add(chip, BorderLayout.EAST);
         return banner;
     }
@@ -291,14 +298,31 @@ public class SimulatorUI extends JFrame {
             setButtonsForLoaded();
             refreshView(null);
         } catch (Assembler.AssemblyException ex) {
+            sim.logError("Assembly error: " + ex.getMessage());      // UI -> Core -> Logger
             JOptionPane.showMessageDialog(this, ex.getMessage(),
                     "Assembly error", JOptionPane.ERROR_MESSAGE);
+        } catch (SimulatorBackend.BackendException ex) {
+            backendFailed(ex);
         }
+    }
+
+    /** The Core process disappeared: tell the user and disable the controls. */
+    private void backendFailed(SimulatorBackend.BackendException ex) {
+        if (runTimer != null) { runTimer.stop(); runTimer = null; }
+        statusLabel.setText("ERROR: " + ex.getMessage());
+        setButtonsForUnloaded();
+        loadBtn.setEnabled(false);
+        JOptionPane.showMessageDialog(this, ex.getMessage(), "IPC error", JOptionPane.ERROR_MESSAGE);
     }
 
     private void doReset() {
         stopRun();
-        sim.reset();
+        try {
+            sim.reset();
+        } catch (SimulatorBackend.BackendException ex) {
+            backendFailed(ex);
+            return;
+        }
         traceArea.setText("");
         append("-- CPU reset. PC = 0000H --\n\n");
         statusLabel.setText("Reset. PC = 0000H.");
@@ -308,7 +332,13 @@ public class SimulatorUI extends JFrame {
 
     private void doStep() {
         if (program == null) return;
-        Simulator.StepResult r = sim.step();
+        Simulator.StepResult r;
+        try {
+            r = sim.step();
+        } catch (SimulatorBackend.BackendException ex) {
+            backendFailed(ex);
+            return;
+        }
         append(TraceFormatter.format(r));
         refreshView(r);
 
@@ -340,7 +370,13 @@ public class SimulatorUI extends JFrame {
 
         runTimer = new Timer(180, ev -> {
             if (sim.finished()) { stopRun(); return; }
-            Simulator.StepResult r = sim.step();
+            Simulator.StepResult r;
+            try {
+                r = sim.step();
+            } catch (SimulatorBackend.BackendException ex) {
+                backendFailed(ex);
+                return;
+            }
             append(TraceFormatter.format(r));
             refreshView(r);
             if (r.invalid || r.halted || sim.finished()) {
@@ -571,10 +607,16 @@ public class SimulatorUI extends JFrame {
             "        MOV  32H,A       ; RAM[32H] = 22H\n" +
             "        HLT              ; queue still holds [33]\n";
 
+    /** Standalone (single-process) mode - the Week 3 behaviour, kept as the benchmark baseline. */
     public static void launch() {
+        launch(new LocalBackend(), "standalone, single process");
+    }
+
+    /** Open the UI on any backend (local simulator or remote Core process). */
+    public static void launch(SimulatorBackend backend, String mode) {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) { }
-        SwingUtilities.invokeLater(() -> new SimulatorUI().setVisible(true));
+        SwingUtilities.invokeLater(() -> new SimulatorUI(backend, mode).setVisible(true));
     }
 }
