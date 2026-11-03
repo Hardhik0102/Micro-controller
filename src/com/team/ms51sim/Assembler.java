@@ -144,7 +144,7 @@ public class Assembler {
             case "ENQ": case "DEQ":
                 return 1;                            // ENQ A ; DEQ A
             case "MOV":
-                // MOV Rn,A is 1 byte; every other MOV form (A,#data / A,direct / direct,A) is 2
+                // MOV Rn,A is 1 byte; every other MOV form (A,#data / A,direct / direct,A / C,ACC.n) is 2
                 return (p.length == 2 && p[1].equals("A") && p[0].matches("R[0-7]")) ? 1 : 2;
             case "ADD":
                 return 1;                            // ADD A,Rn
@@ -154,6 +154,14 @@ public class Assembler {
                 return 2;                            // DJNZ Rn,rel
             case "PUSH": case "POP":
                 return 2;                            // PUSH direct ; POP direct
+            case "XRL":
+                return 2;                            // XRL A,#data
+            case "RLC":
+                return 1;                            // RLC A
+            case "JNC": case "JC":
+                return 2;                            // JNC rel ; JC rel
+            case "CLR":
+                return 1;                            // CLR C
             default:
                 throw new AssemblyException("Unknown / unsupported mnemonic: " + mn);
         }
@@ -174,10 +182,12 @@ public class Assembler {
                 String d = p[0], s = p[1];
                 if (d.equals("A") && s.startsWith("#"))    return new int[]{0x74, imm(s)};
                 if (d.matches("R[0-7]") && s.equals("A"))  return new int[]{0xF8 + reg(d)};
+                if (d.equals("C") && s.matches("ACC\\.[0-7]"))
+                    return new int[]{0xA2, 0xE0 + (s.charAt(4) - '0')};                       // MOV C,ACC.n
                 if (d.equals("A"))                         return new int[]{0xE5, direct(s)};   // MOV A,direct
                 if (s.equals("A"))                         return new int[]{0xF5, direct(d)};   // MOV direct,A
                 throw new AssemblyException("Unsupported MOV form: " + ops
-                        + "  (supported: MOV A,#data | MOV Rn,A | MOV A,direct | MOV direct,A)");
+                        + "  (supported: MOV A,#data | MOV Rn,A | MOV A,direct | MOV direct,A | MOV C,ACC.n)");
             }
 
             case "PUSH":
@@ -217,6 +227,33 @@ public class Assembler {
                 int rel = target - (address + 2);
                 return new int[]{0xD8 + reg(p[0]), checkRel(rel, p[1])};
             }
+
+            case "XRL":
+                require(p.length == 2 && p[0].equals("A"), "XRL expects A,#data or A,direct");
+                if (p[1].startsWith("#")) return new int[]{0x64, imm(p[1])};        // XRL A,#data
+                return new int[]{0x65, direct(p[1])};                               // XRL A,direct
+
+            case "RLC":
+                require(ops.equals("A"), "RLC expects A  (only 'RLC A' is supported)");
+                return new int[]{0x33};
+
+            case "JNC": {
+                require(p.length == 1, "JNC expects a single target label");
+                int target = resolve(p[0], labels);
+                int rel = target - (address + 2);
+                return new int[]{0x50, checkRel(rel, p[0])};
+            }
+
+            case "JC": {
+                require(p.length == 1, "JC expects a single target label");
+                int target = resolve(p[0], labels);
+                int rel = target - (address + 2);
+                return new int[]{0x40, checkRel(rel, p[0])};
+            }
+
+            case "CLR":
+                require(ops.equals("C"), "CLR expects C  (only 'CLR C' is supported)");
+                return new int[]{0xC3};
 
             default:
                 throw new AssemblyException("Unknown / unsupported mnemonic: " + mn);
