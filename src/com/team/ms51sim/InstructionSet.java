@@ -239,5 +239,110 @@ public class InstructionSet {
                                 + "   (queue size " + cpu.queue.size() + "/" + cpu.queue.capacity() + ")");
                     }
                 }));
+
+        buildWeek5();
+    }
+
+    /**
+     * Week 5: three more real 8051 instructions, added so the project can
+     * implement a genuine bit-serial CRC-6 (g(D) = D^6 + D^5 + 1) in
+     * assembly. CRC needs XOR and a shift/rotate; the instruction set had
+     * neither until now. All three opcodes below are real, previously
+     * unused 8051 opcodes - documented in docs/week-05/crc6-notes.md.
+     */
+    private void buildWeek5() {
+
+        /* ============ Logical Operation: XOR ============ */
+
+        // XRL A,#data            opcode 64H, 2 bytes  (real 8051 opcode)
+        put(new Instruction(0x64, "XRL  A,#data", Category.LOGICAL, 2,
+                (cpu, op, ctx) -> Alu.logic(cpu, cpu.acc ^ op, ctx)));
+
+        // XRL A,direct            opcode 65H, 2 bytes  (real 8051 opcode)
+        put(new Instruction(0x65, "XRL  A,direct", Category.LOGICAL, 2,
+                (cpu, op, ctx) -> Alu.logic(cpu, cpu.acc ^ cpu.readDirect(op & 0xFF), ctx)));
+
+        /* ============ Data Transfer: single-bit move into Carry ============ */
+
+        // MOV C,bit               opcode A2H, 2 bytes  (real 8051 opcode)
+        // Copies one bit of ACC into the carry flag. The operand byte is a
+        // real-8051-style bit address: E0H..E7H select ACC bits 0..7
+        // (ACC's real direct address is E0H and it is bit-addressable on
+        // real hardware, so "ACC.n" = E0H+n). Only ACC bits are supported.
+        put(new Instruction(0xA2, "MOV  C,bit", Category.DATA_TRANSFER, 2,
+                (cpu, op, ctx) -> {
+                    boolean cyOld = cpu.carry();
+                    int bitAddr = op & 0xFF;
+                    if (bitAddr < 0xE0 || bitAddr > 0xE7) {
+                        throw new IllegalStateException(
+                                "MOV C,bit only supports ACC.0-ACC.7 (E0H-E7H) in this simulator");
+                    }
+                    int n = bitAddr - 0xE0;
+                    boolean bit = ((cpu.acc >> n) & 1) != 0;
+                    cpu.setFlag(CPU.PSW_CY, bit);
+                    ctx.recordFlag("CY", cyOld, bit);
+                    ctx.note("CY <- ACC." + n);
+                }));
+
+        /* ============ Control Flow: clear carry ============ */
+
+        // CLR C                   opcode C3H, 1 byte  (real 8051 opcode)
+        put(new Instruction(0xC3, "CLR  C", Category.CONTROL_FLOW, 1,
+                (cpu, op, ctx) -> {
+                    boolean cyOld = cpu.carry();
+                    cpu.setFlag(CPU.PSW_CY, false);
+                    ctx.recordFlag("CY", cyOld, false);
+                }));
+
+        /* ============ Control Flow: rotate-through-carry ============ */
+
+        // RLC A                   opcode 33H, 1 byte  (real 8051 opcode)
+        // Rotates ACC left through the carry flag:
+        //   new CY     = old ACC bit 7
+        //   new ACC[0] = old CY
+        //   new ACC[n] = old ACC[n-1]   for n = 1..7
+        put(new Instruction(0x33, "RLC  A", Category.ARITHMETIC, 1,
+                (cpu, op, ctx) -> {
+                    boolean cyOld = cpu.carry();
+                    int accBefore = cpu.acc;
+                    boolean newCy = (accBefore & 0x80) != 0;
+                    int result = ((accBefore << 1) | (cyOld ? 1 : 0)) & 0xFF;
+                    cpu.setAcc(result);
+                    cpu.setFlag(CPU.PSW_CY, newCy);
+                    ctx.recordByte("ACC", accBefore, cpu.acc);
+                    ctx.recordFlag("CY", cyOld, newCy);
+                }));
+
+        /* ============ Control Flow: conditional relative jump ============ */
+
+        // JNC rel                 opcode 50H, 2 bytes  (real 8051 opcode)
+        // Jump to PC+rel if CY = 0 (i.e. skip when CY = 1).
+        put(new Instruction(0x50, "JNC  rel", Category.CONTROL_FLOW, 2,
+                (cpu, op, ctx) -> {
+                    if (!cpu.carry()) {
+                        int pcBefore = cpu.pc;
+                        cpu.pc = (cpu.pc + (byte) op) & 0xFFFF;
+                        ctx.pcOverridden = true;
+                        ctx.recordWord("PC", pcBefore, cpu.pc);
+                        ctx.note("branch taken (CY = 0)");
+                    } else {
+                        ctx.note("branch not taken (CY = 1)");
+                    }
+                }));
+
+        // JC rel                  opcode 40H, 2 bytes  (real 8051 opcode)
+        // Jump to PC+rel if CY = 1 (i.e. skip when CY = 0).
+        put(new Instruction(0x40, "JC   rel", Category.CONTROL_FLOW, 2,
+                (cpu, op, ctx) -> {
+                    if (cpu.carry()) {
+                        int pcBefore = cpu.pc;
+                        cpu.pc = (cpu.pc + (byte) op) & 0xFFFF;
+                        ctx.pcOverridden = true;
+                        ctx.recordWord("PC", pcBefore, cpu.pc);
+                        ctx.note("branch taken (CY = 1)");
+                    } else {
+                        ctx.note("branch not taken (CY = 0)");
+                    }
+                }));
     }
 }
